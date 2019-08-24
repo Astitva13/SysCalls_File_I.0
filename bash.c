@@ -15,6 +15,7 @@
 #define buff_size 1000000
 
 char s[10000];
+char s_save[10000];
 char inputstring[10000];
 char homedir[10000];
 char currdir[10000];
@@ -55,13 +56,13 @@ void truncatedir(char * name)
 
 void printdetails(){
 	name = getlogin();
-	printf("<%s@", name);
+	printf("<\x1b[31m%s\x1b[0m@", name);
 	gethostname(name,100*sizeof(char));
-	printf("%s:", name);
+	printf("\x1b[33m%s\x1b[0m:", name);
 	// getcwd(name,100*sizeof(char));
 	strcpy(name,currdir);
 	truncatedir(name);
-	printf("%s> ", name);
+	printf("\x1b[32m%s\x1b[0m> ", name);
 }
 
 
@@ -71,12 +72,12 @@ void cmd_pwd(){
 	if(strcmp(tok,"pwd")==0)
 	{
 		char* name = (char *)malloc(100*sizeof(char));
-		strcpy(currdir,name);
+		// strcpy(currdir,name);
 		getcwd(name,100*sizeof(char));
 		printf("%s\n",name);
 		stx=1;
 	}
-	strcpy(s,inputstring);
+	strcpy(s,s_save);
 
 }
 
@@ -100,6 +101,14 @@ void cmd_cd(){
 		else if(strcmp(tok,"-")==0){
 			chdir(prevdir);
 		}
+		else if(tok[0]=='~')
+		{
+			char temp[10000];
+			strcpy(temp,homedir);
+			if(sizeof(tok)>1)
+				strcat(temp,&tok[1]);
+			if(chdir(temp)!=0) perror(temp);
+		}
 		else{
 			if(chdir(tok)!=0)
 			{
@@ -114,7 +123,8 @@ void cmd_cd(){
 	{
 		strcpy(prevdir,tempdir);
 	}
-	strcpy(s,inputstring);
+	char s[10000];
+	strcpy(s,s_save);
 }
 
 void strrem(char *s, char c){ 
@@ -135,7 +145,7 @@ void cmd_echo()
 		printf("%s\n", tok);
 		stx=1;
 	}
-	strcpy(s,inputstring);
+	strcpy(s,s_save);
 }
 
 int fl_a=0,fl_l=0,fl_dir=0,ctdir=0;
@@ -262,7 +272,7 @@ void cmd_ls()
 
 			stx=1;
 		}
-		strcpy(s,inputstring);
+		strcpy(s,s_save);
 	}
 }
 
@@ -292,7 +302,7 @@ void cmd_fg()
 		if (wait(&status) <= 0 || st==1) perror(args[0]);
 	} 
 	stx=1;
-	strcpy(s,inputstring);
+	strcpy(s,s_save);
 }
 
 int counter=0;
@@ -324,12 +334,16 @@ void cmd_bg()
 		else
 		{
 			stx=1;
-			printf("[%d] %d\n",counter,getpid() );
-			fflush(stdout);
-			if(execvp(args[0],args)<0) printf("Error\n");; 
+			printf("[%d] %d\n",counter,getpid());
+			// fflush(stdout);
+			// execvp(args[0],args);
+			if(execvp(args[0],args)!=-1) {
+				// addbg(getpid());
+			}else perror(args[0]);
+			exit(0);
 		}
 	}
-	strcpy(s,inputstring);
+	strcpy(s,s_save);
 }
 
 void cmd_pinfo()
@@ -339,7 +353,7 @@ void cmd_pinfo()
 	{
 		char location[1000] = "/proc/";
 		tok = strtok(0," ");
-		if(tok==NULL)
+		if(tok==NULL || tok=="")
 		{
 			strcat(location,"self/stat");
 		}
@@ -349,7 +363,7 @@ void cmd_pinfo()
 			if(temp != NULL)
 			{
 				printf("Single argument expected\n");
-				strcpy(s,inputstring);
+				strcpy(s,s_save);
 				stx=1;return;
 			}
 			else{
@@ -362,7 +376,7 @@ void cmd_pinfo()
 		int fileIn = open(location, O_RDONLY);
 		if (fileIn<0){ 
 			printf("Invalid pid\n");
-			strcpy(s,inputstring);
+			strcpy(s,s_save);
 			stx=1;return;
 		}
 		char *data = (char *) calloc(buff_size,sizeof(char));
@@ -387,32 +401,92 @@ void cmd_pinfo()
 		printf("Executable Path -- %s\n",data);
 		stx=1;
 	}
-	strcpy(s,inputstring);
+	strcpy(s,s_save);
 }
+
+int pidarr[100000];
 
 void functions()
 {
+	stx=0;
+	cmd_bg();if(stx==1) return;
 	cmd_pinfo();if(stx==1) return;
 	cmd_cd();if(stx==1) return;
 	cmd_pwd();if(stx==1) return;
 	cmd_echo();if(stx==1) return;
 	cmd_ls();if(stx==1) return;
-	cmd_bg();if(stx==1) return;
 	cmd_fg();if(stx==1) return;
 }
+
+void trim()
+{
+	char str[10000];
+	strcpy(str,s);
+	int n = strlen(str); 
+	int i = 0, j = -1; 
+	int spaceFound = 0; 
+	while (++j < n && str[j] == ' '); 
+	while (j < n) 
+	{ 
+		if (str[j] != ' ') 
+		{ 
+			if ((str[j] == '.' || str[j] == ',' || 
+				str[j] == '?') && i - 1 >= 0 && 
+				str[i - 1] == ' ') 
+				str[i - 1] = str[j++]; 
+			else
+				str[i++] = str[j++]; 
+			spaceFound = 0; 
+		} 
+		else if (str[j++] == ' ') 
+		{ 
+			if (spaceFound==0) 
+			{ 
+				str[i++] = ' '; 
+				spaceFound = 1; 
+			} 
+		} 
+	} 
+	char temp_str[10000];
+	if (i <= 1)
+		strncpy(temp_str,str,i+1);
+	else
+		strncpy(temp_str,str,i);
+	strcpy(s,temp_str);
+	strcpy(s_save,temp_str);
+}
+
+void wrapper()
+{
+	char str[10000];
+	strcpy(str,s);
+	char *end_str;
+	char *token = strtok_r(str, ";", &end_str);
+	int i=0;
+	while (token != NULL)
+	{
+		if(!i++==0){printf("\n");}
+		strcpy(s,token);
+		trim();
+		functions();
+		token = strtok_r(NULL, ";", &end_str);
+	}
+}
+
+
 
 int main()
 {
 	memset(s,0,10000*sizeof(char));
+	memset(pidarr,-1,100000);
 	memset(inputstring,0,10000*sizeof(char));
 	init();
 	while(strcmp(s,"exit")!=0)
 	{
-		stx=0;
 		printdetails();
 		fgets(s,10000,stdin);
 		strtok(s,"\n");
 		strcpy(inputstring,s);
-		functions();
+		wrapper();
 	}
 }
